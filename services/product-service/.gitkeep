@@ -1,0 +1,22 @@
+# Product Service
+
+此目录为商品服务的模板位置。
+
+需要先进入目录并初始化：
+
+```bash
+cd services/product-service
+
+# 复制 user-service 的结构作为模板
+cp -r ../user-service/* ./
+```
+
+然后需要修改以下内容：
+- app/main.py - 修改服务标题和描述
+- app/routers/*.py - 实现商品、库存等业务逻辑
+- app/models/*.py - 定义商品相关业务模型
+- app/schemas/*.py - 定义商品相关数据模式
+- tests/*.py - 编写商品业务测试
+- requirements.txt - 按需调整依赖
+- Dockerfile/Dockerfile.prod - 镜像构建配置（通常无需改动）
+```

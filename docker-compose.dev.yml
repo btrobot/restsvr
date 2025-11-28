@@ -1,0 +1,160 @@
+version: '3.8'
+
+services:
+  # Nginx 反向代理（开发环境）
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.dev.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - user-service
+      - order-service
+      - product-service
+    networks:
+      - microservices-network
+
+  # 用户服务
+  user-service:
+    build:
+      context: ./services/user-service
+      dockerfile: Dockerfile
+    volumes:
+      # 挂载本地代码，实现热重载
+      - ./services/user-service:/app
+      # 避免挂载虚拟环境和编译文件
+      - /app/.venv
+      - /app/__pycache__
+      - /app/.pytest_cache
+    ports:
+      - "8001:8000"  # 本地访问用，实际通过 nginx
+    environment:
+      - ENVIRONMENT=development
+      - DATABASE_URL=sqlite:///./test.db  # 开发环境使用 SQLite
+      - REDIS_URL=redis://redis:6379/0
+      - SERVICE_NAME=user-service
+      - SERVICE_PORT=8000
+    env_file:
+      - .env
+    depends_on:
+      - redis
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --log-level debug
+    networks:
+      - microservices-network
+    restart: unless-stopped
+
+  # 订单服务
+  order-service:
+    build:
+      context: ./services/order-service
+      dockerfile: Dockerfile
+    volumes:
+      - ./services/order-service:/app
+      - /app/.venv
+      - /app/__pycache__
+      - /app/.pytest_cache
+    ports:
+      - "8002:8000"
+    environment:
+      - ENVIRONMENT=development
+      - DATABASE_URL=sqlite:///./test.db
+      - REDIS_URL=redis://redis:6379/1
+      - SERVICE_NAME=order-service
+      - SERVICE_PORT=8000
+    env_file:
+      - .env
+    depends_on:
+      - redis
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --log-level debug
+    networks:
+      - microservices-network
+    restart: unless-stopped
+
+  # 商品服务
+  product-service:
+    build:
+      context: ./services/product-service
+      dockerfile: Dockerfile
+    volumes:
+      - ./services/product-service:/app
+      - /app/.venv
+      - /app/__pycache__
+      - /app/.pytest_cache
+    ports:
+      - "8003:8000"
+    environment:
+      - ENVIRONMENT=development
+      - DATABASE_URL=sqlite:///./test.db
+      - REDIS_URL=redis://redis:6379/2
+      - SERVICE_NAME=product-service
+      - SERVICE_PORT=8000
+    env_file:
+      - .env
+    depends_on:
+      - redis
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --log-level debug
+    networks:
+      - microservices-network
+    restart: unless-stopped
+
+  # Redis 缓存和消息队列
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    command: redis-server /usr/local/etc/redis/redis.conf
+    networks:
+      - microservices-network
+    restart: unless-stopped
+
+  # PostgreSQL（可选，可用于需要更复杂数据 persistent 的场景）
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=microservices
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    env_file:
+      - .env
+    networks:
+      - microservices-network
+    profiles:
+      - optional  # 默认不启动，需要时添加 --profile optional
+    restart: unless-stopped
+
+  # MySQL（可选）
+  mysql:
+    image: mysql:8.0
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    environment:
+      - MYSQL_ROOT_PASSWORD=root
+      - MYSQL_DATABASE=microservices
+      - MYSQL_USER=user
+      - MYSQL_PASSWORD=password
+    env_file:
+      - .env
+    profiles:
+      - optional
+    networks:
+      - microservices-network
+    restart: unless-stopped
+
+volumes:
+  redis-data:
+  postgres-data:
+  mysql-data:
+
+networks:
+  microservices-network:
+    driver: bridge

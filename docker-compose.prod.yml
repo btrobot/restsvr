@@ -1,0 +1,254 @@
+version: '3.8'
+
+services:
+  # Nginx 反向代理（生产环境）
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"  # 支持 HTTPS
+    volumes:
+      - ./nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro  # SSL 证书（可选）
+    depends_on:
+      - user-service
+      - order-service
+      - product-service
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    restart: always
+    networks:
+      - microservices-network
+
+  # 用户服务（生产环境）
+  user-service:
+    build:
+      context: ./services/user-service
+      dockerfile: Dockerfile.prod  # 使用生产环境的 Dockerfile
+    # 生产环境不挂载代码，代码已打包在镜像中
+    environment:
+      - ENVIRONMENT=production
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - REDIS_URL=redis://redis:6379/0
+      - SERVICE_NAME=user-service
+      - SERVICE_PORT=8000
+      - WORKERS=4  # Gunicorn worker 数量
+      - LOG_LEVEL=info
+    env_file:
+      - .env
+    depends_on:
+      - redis
+      - postgres
+    # 生产环境不暴露端口，全部通过 nginx 代理
+    expose:
+      - "8000"
+    deploy:
+      replicas: 2  # 运行 2 个副本（负载均衡）
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
+        reservations:
+          cpus: '1'
+          memory: 512M
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - microservices-network
+    restart: always
+
+  # 订单服务
+  order-service:
+    build:
+      context: ./services/order-service
+      dockerfile: Dockerfile.prod
+    environment:
+      - ENVIRONMENT=production
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - REDIS_URL=redis://redis:6379/1
+      - SERVICE_NAME=order-service
+      - SERVICE_PORT=8000
+      - WORKERS=4
+      - LOG_LEVEL=info
+    env_file:
+      - .env
+    depends_on:
+      - redis
+      - postgres
+    expose:
+      - "8000"
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
+        reservations:
+          cpus: '1'
+          memory: 512M
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - microservices-network
+    restart: always
+
+  # 商品服务
+  product-service:
+    build:
+      context: ./services/product-service
+      dockerfile: Dockerfile.prod
+    environment:
+      - ENVIRONMENT=production
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD}@postgres:6379/${POSTGRES_DB}
+      - REDIS_URL=redis://redis:6379/2
+      - SERVICE_NAME=product-service
+      - SERVICE_PORT=8000
+      - WORKERS=4
+      - LOG_LEVEL=info
+    env_file:
+      - .env
+    depends_on:
+      - redis
+      - postgres
+    expose:
+      - "8000"
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
+        reservations:
+          cpus: '1'
+          memory: 512M
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - microservices-network
+    restart: always
+
+  # Redis（生产环境）
+  redis:
+    image: redis:7-alpine
+    command: redis-server /usr/local/etc/redis/redis.conf
+    volumes:
+      - redis-data:/data
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    networks:
+      - microservices-network
+    restart: always
+
+  # PostgreSQL（生产环境主数据库）
+  postgres:
+    image: postgres:16-alpine
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-microservices}
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      - POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256
+    env_file:
+      - .env
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - microservices-network
+    restart: always
+
+  # MySQL（可选，用于特定业务）
+  mysql:
+    image: mysql:8.0
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./mysql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-root}
+      - MYSQL_DATABASE=${MYSQL_DATABASE:-microservices}
+      - MYSQL_USER=${MYSQL_USER:-user}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-password}
+    env_file:
+      - .env
+    profiles:
+      - optional
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - microservices-network
+    restart: always
+
+volumes:
+  redis-data:
+    driver: local
+  postgres-data:
+    driver: local
+  mysql-data:
+    driver: local
+
+networks:
+  microservices-network:
+    driver: bridge
+    attachable: true

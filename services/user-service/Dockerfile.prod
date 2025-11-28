@@ -1,0 +1,98 @@
+#
+# Docker 镜像 - 用户服务（生产环境）
+# 这是一个优化的生产环境镜像，采用多阶段构建
+# =================================================
+# 此镜像专为生产环境优化，特点:
+# - 多阶段构建，最小化镜像体积
+# - 使用 Gunicorn + Uvicorn 运行多个 worker
+# - 无开发工具，安全性更高
+# - 非 root 用户运行，提升安全性
+#
+# 构建命令:
+#   docker build -f Dockerfile.prod -t user-service:prod .
+#
+# 运行命令:
+#   docker run -d -p 8000:8000 --name user-service user-service:prod
+#
+
+# ===============================================
+# Stage 1: 构建阶段
+# ===============================================
+FROM python:3.12-slim as builder
+
+# 设置环境变量
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/app
+
+WORKDIR /app
+
+# 安装构建依赖
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# 复制 requirements
+COPY requirements.txt .
+
+# 创建虚拟环境并安装依赖
+RUN python -m venv /venv && \
+    /venv/bin/pip install --no-cache-dir --upgrade pip setuptools wheel && \
+    /venv/bin/pip install --no-cache-dir -r requirements.txt
+
+# ===============================================
+# Stage 2: 最终运行镜像
+# ===============================================
+FROM python:3.12-slim
+
+# 安装运行时依赖
+RUN apt-get update && apt-get install -y \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# 创建非 root 用户
+RUN groupadd -r appuser && useradd -r -g appuser appuser
+
+# 设置工作目录
+WORKDIR /app
+
+# 从构建阶段复制虚拟环境
+COPY --from=builder /venv /venv
+
+# 复制应用代码
+COPY --chown=appuser:appuser . .
+
+# 设置环境变量
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/app \
+    PATH=/venv/bin:$PATH \
+    PORT=8000
+
+# 切换到非 root 用户
+USER appuser
+
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# 暴露端口
+EXPOSE 8000
+
+# 生产启动命令 - 使用 Gunicorn + Uvicorn
+# 默认 4 个 worker，可根据服务器资源调整
+CMD exec gunicorn \
+    --bind 0.0.0.0:$PORT \
+    --workers 4 \
+    --worker-class uvicorn.workers.UvicornWorker \
+    --worker-tmp-dir /dev/shm \
+    --timeout 60 \
+    --keep-alive 5 \
+    --max-requests 1000 \
+    --max-requests-jitter 50 \
+    --access-logfile - \
+    --error-logfile - \
+    --log-level info \
+    app.main:app
