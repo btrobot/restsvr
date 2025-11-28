@@ -43,13 +43,13 @@ dev:
 	echo "正在启动开发环境(首次运行)…"
 	echo "这将构建所有服务的镜像，请耐心等待"
 	cp -n .env.dev .env 2>/dev/null || true
-	docker compose -f docker-compose.dev.yml --env-file .env up --build
+	docker compose --file docker-compose.dev.minimal.yml --env-file .env up --build
 
 ## 启动开发环境（不重建）
 dev-service:
 	echo "正在启动开发环境（跳过构建）…"
 	cp -n .env.dev .env 2>/dev/null || true
-	docker compose -f docker-compose.dev.yml --env-file .env up
+	docker compose --file docker-compose.dev.minimal.yml --env-file .env up
 
 ## 进入开发环境
 dev-exec:
@@ -61,16 +61,16 @@ dev-exec:
 		echo "错误: 请指定服务名称 (SERVICE=xxx)"; \
 		exit 1; \
 	fi
-	docker compose -f docker-compose.dev.yml exec $(SERVICE) /bin/sh
+	docker compose --file docker-compose.dev.minimal.yml exec $(SERVICE) /bin/sh
 
 ## 重启开发环境
 restart:
-	docker compose -f docker-compose.dev.yml restart
+	docker compose --file docker-compose.dev.minimal.yml restart
 	@echo "✅ 开发环境已重启"
 
 ## 停止开发环境
 down:
-	docker compose -f docker-compose.dev.yml down
+	docker compose --file docker-compose.dev.minimal.yml down
 	@echo "✅ 开发环境已停止"
 
 # ===========================================
@@ -113,7 +113,7 @@ prod-logs:
 
 ## 查看所有日志
 logs:
-	docker compose -f docker-compose.dev.yml logs -f
+	docker compose --file docker-compose.dev.minimal.yml logs -f
 
 ## 查看指定服务日志
 logs-service:
@@ -122,7 +122,7 @@ logs-service:
 		echo "例如: make logs-service user-service"; \
 		exit 1; \
 	fi
-	docker compose -f docker-compose.dev.yml logs -f $(SERVICE)
+	docker compose --file docker-compose.dev.minimal.yml logs -f $(SERVICE)
 
 # ===========================================
 # 调试工具
@@ -138,15 +138,15 @@ ps:
 
 ## 进入 Redis 命令行
 redis-shell:
-	docker compose -f docker-compose.dev.yml exec redis redis-cli
+	docker compose --file docker-compose.dev.minimal.yml exec redis redis-cli
 
 ## 进入 PostgreSQL 命令行
 pg-shell:
-	docker compose -f docker-compose.dev.yml exec postgres psql -U postgres -d microservices
+	docker compose --file docker-compose.dev.minimal.yml exec postgres psql -U postgres -d microservices
 
 ## 进入 MySQL 命令行
 mysql-shell:
-	docker compose -f docker-compose.dev.yml --profile optional exec mysql mysql -uroot -p$${MYSQL_ROOT_PASSWORD}
+	docker compose --file docker-compose.dev.minimal.yml --profile optional exec mysql mysql -uroot -p$${MYSQL_ROOT_PASSWORD}
 
 # ===========================================
 # 测试
@@ -166,7 +166,7 @@ test-service:
 		echo "例如: make test-service user-service"; \
 		exit 1; \
 	fi
-	docker compose -f docker-compose.dev.yml exec $(SERVICE) pytest tests/ -v
+	docker compose --file docker-compose.dev.minimal.yml exec $(SERVICE) pytest tests/ -v
 
 ## 快速测试（开发中）
 test-quick:
@@ -178,7 +178,7 @@ test-quick:
 
 ## 清理开发环境
 clean-dev:
-	docker compose -f docker-compose.dev.yml down -v --remove-orphans
+	docker compose --file docker-compose.dev.minimal.yml down -v --remove-orphans
 	docker system prune -f
 	@echo "✅ 开发环境已清理"
 
@@ -190,7 +190,7 @@ clean-prod:
 
 ## 清理所有
 clean:
-	docker compose -f docker-compose.dev.yml down -v --remove-orphans 2>/dev/null || true
+	docker compose --file docker-compose.dev.minimal.yml down -v --remove-orphans 2>/dev/null || true
 	docker compose -f docker-compose.prod.yml down -v --remove-orphans 2>/dev/null || true
 	docker system prune -af --volumes
 	@echo "✅ 所有容器、网络和卷已清理"

@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  # Nginx 反向代理（开发环境）
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.dev.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - user-service
+    networks:
+      - microservices-network
+
+  # 用户服务
+  user-service:
+    build:
+      context: ./services/user-service
+      dockerfile: Dockerfile
+    volumes:
+      # 挂载本地代码，实现热重载
+      - ./services/user-service:/app
+      - /app/.venv
+      - /app/__pycache__
+      - /app/.pytest_cache
+    ports:
+      - "8001:8000"
+    environment:
+      - ENVIRONMENT=development
+      - DATABASE_URL=sqlite:///./test.db
+      - REDIS_URL=redis://redis:6379/0
+      - SERVICE_NAME=user-service
+      - SERVICE_PORT=8000
+    env_file:
+      - .env
+    depends_on:
+      - redis
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --log-level debug
+    networks:
+      - microservices-network
+    restart: unless-stopped
+
+  # Redis 缓存
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    command: redis-server /usr/local/etc/redis/redis.conf
+    networks:
+      - microservices-network
+    restart: unless-stopped
+
+volumes:
+  redis-data:
+
+networks:
+  microservices-network:
+    driver: bridge
